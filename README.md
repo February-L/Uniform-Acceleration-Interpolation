@@ -1,5 +1,5 @@
 # Uniform-Acceleration Interpolation
-Interpolate 1D curve between given points by a series of uniformly accelerated motions.
+Interpolate curves between given points on a plane by a series of uniformly accelerated motions.
 
 Requirements: Python version 3.5+, NumPy (reference version: 1.24)  
 Tested with Python IDLE 3.10.8
