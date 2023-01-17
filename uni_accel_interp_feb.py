@@ -12,7 +12,7 @@ from math import sqrt, isfinite
 '''
   * Python function uni_accel_interp() by February
   * First created on 10 January 2023.
-  * Version 20210116c
+  * Version 20230117a
   * Removing the typing module import and the type hints should make
     this function work for Python versions below 3.5.
 '''
@@ -24,8 +24,8 @@ _choice_str_tuple = ('parabola', 'prefer_x', 'sketch')
 ''' Choices:
     0 ('parabola') = to imagine a uniformly accelerated motion through (x0, y0)
         -> (x1, y1) -> (x2, y2), set |v1| to max_speed and then try to find a
-        solution, and if no solution is find, the edge of the constrained domain
-        of definition of the start velocity's direction is chosen
+        solution, and if no solution is found, the edge of the constrained
+        domain of definition of the start velocity's direction is chosen
       * Note that for some point configurations, this gives 90-degree start
         direction for (perhaps almost) all max_speed values allowed.
     1 ('prefer_x') = to give a roughly acceptable start direction depending on
@@ -35,6 +35,12 @@ _choice_str_tuple = ('parabola', 'prefer_x', 'sketch')
         the first three points; perhaps close to hand drawing
   * Currently all choices' start velocity outcomes are usually susceptible to
     the value of max_speed. The default is 0, 'parabola'.
+  * Note: It's workable that let the start velocity be determined by an
+    iterative algorithm which sets an arbitrary initial direction and goes
+    through (x0, y0) -> (x1, y1) -> ... -> (xN, yN) -> (x0, y0) (N is some
+    appropriate number) for multiple times, and then set the start velocity to
+    be used as the final velocity at (x0, y0) in the loop. However, the outcome
+    is unlikely to be satisfactory.
 '''
 
 
@@ -154,51 +160,50 @@ def uni_accel_interp(
 
             xt[i_t] = x0; yt[i_t] = y0
             i_t += 1
+
             dx = x1 - x0; dy = y1 - y0
             dot_x = dx * dx + dy * dy
-            if (not isfinite(dot_x)):
+            if (isfinite(dot_x)):
+                t_base =  (dx * v0_x + dy * v0_y) / vm2_sub_v02
+                dt_min = 2. * (sqrt(
+                    t_base * t_base + dot_x / vm2_sub_v02
+                ) - t_base)
+                    # this is the minimised time cost from (x0, y0) to (x1, y1)
+                    # dt_min can't be NaN since isfinite(dot_x) is ensured.
+            elif (dot_x != dot_x): # when dot_x is NaN
                 xt[i_t:(i_t + N)] = x0
                 yt[i_t:(i_t + N)] = y0
                 i_t += N
                 continue
-
-            t_base =  (dx * v0_x + dy * v0_y) / vm2_sub_v02
-                # term pre-calculated to enchance performance & reduce overflow
-            dt_min = 2. * (sqrt(
-                t_base * t_base + dot_x / vm2_sub_v02
-            ) - t_base)
-            if (dt_min > 0. and dt_min != the_inf):
-                vd_x = dx / dt_min - v0_x; half_a_x = vd_x / dt_min
-                vd_y = dy / dt_min - v0_y; half_a_y = vd_y / dt_min
-                    # the acceleration a = 2 * vd / dt
-                    # it should minimise the time cost from (x0, y0) to (x1, y1)
-            else: # dt_min can't be NaN since isfinite(dot_x) is ensured
-                half_a_y = the_inf # simply for the 'if' statement below
+            else: # when dot_x is infinity
+                dt_min = the_inf
 
             if (N != prev_N):
                 frac_arr = np_arange(1, N + 1, dtype = 'float64') / (N + 1)
                     # probably reusable fraction array [1, 2, ..., N] / (N + 1)
+                frac_sq = frac_arr**2.
+                x_frac = frac_arr - frac_sq
+                    # fraction * (1 - fraction)
                 prev_N = N
-            if (isfinite(half_a_y) and isfinite(half_a_x)):
-                t_arr = frac_arr * dt_min
-                xt[i_t:(i_t + N)] = t_arr * (t_arr * half_a_x + v0_x) + x0
-                yt[i_t:(i_t + N)] = t_arr * (t_arr * half_a_y + v0_y) + y0
-                v0_x += 2. * vd_x
-                v0_y += 2. * vd_y
+            if (dt_min > 0.):
+                # let the possible infinity-valued dt_min do its worse
+                xt[i_t:(i_t + N)] = frac_sq * dx + x_frac * v0_x * dt_min + x0
+                yt[i_t:(i_t + N)] = frac_sq * dy + x_frac * v0_y * dt_min + y0
+                v0_x = 2. * dx / dt_min - v0_x
+                v0_y = 2. * dy / dt_min - v0_y
             else:
-                t_arr = frac_arr**2.
-                    # not the actual time array; just reusing the variable here
-                xt[i_t:(i_t + N)] = t_arr * dx + x0
-                yt[i_t:(i_t + N)] = t_arr * dy + y0
+                xt[i_t:(i_t + N)] = frac_sq * dx + x0
+                yt[i_t:(i_t + N)] = frac_sq * dy + y0
                 v0_x = dx
                 v0_y = dy
             i_t += N
 
             v0_norm = sqrt(v0_x * v0_x + v0_y * v0_y)
-            if (v0_norm > 0.): # (infinity / infinity) won't happen here
+            if (v0_norm > 0. and isfinite(v0_norm)):
                 v0_x /= v0_norm; v0_y /= v0_norm
             else:
                 v0_x = 0.; v0_y = 0.
+            # v0_x and v0_y are thus never infinity-valued nor NaN-valued
 
         xt[i_t] = x1; yt[i_t] = y1
 
@@ -322,11 +327,11 @@ def _solve_s(dot11, dot12, cross12, Rv_sq, v0 = 1.) -> (float, float):
         Rv_sq := (max speed)^2 / v0^2 > 1 # 'Ratio of v squared'
         s := v0 × dx1_vector / (|v0| * (dot11)^0.5)
         u := v0 ∙ dx1_vector / (|v0| * (dot11)^0.5)
-      * Fixing the three points (and v0), a root should definity exists within
+      * Fixing the three points (and v0), a root should definitely exist within
         a certain |v1| (which is fixed to max_speed in the calculation to
         minimise (t1 - t0)) interval, but the interval is often exclusive of
-        the chosen max_speed (sometimes exlusive of all max_speed > |v0|):
-        Firstly it's necessary to note how the root is determined: given s, then
+        the chosen max_speed (sometimes exclusive of all max_speed > |v0|):
+        First, it's necessary to note how the root is determined: given s, then
         calculate a dt1 value that matches the max_speed requirement, denoted
         as dt1_1 -> use dt1_1 and the cross product relation (including cross12)
         between dt1 & dt2 to calculate a value of dt2, denoted as dt2_2 -> use
@@ -338,7 +343,7 @@ def _solve_s(dot11, dot12, cross12, Rv_sq, v0 = 1.) -> (float, float):
         constraints apart from |v1| = max_speed > |v0|:
             dt1 > 0, dt2 > dt1, u >= 0.
             (sgn(s) = sgn(cross12) is a natural result of the equations.)
-        Applying, all these constraints, the f = 0 equation is often unsolvable
+        Applying all these constraints, the f = 0 equation is often unsolvable
         within the domain (of definition) of s, and when this happens:
         Since dt1_1 > 0 and dt2_2 > dt1_1 (could be infinity, so the code below
         uses the reciprocal of it ('t2_inv')) is guaranteed by the equations
@@ -465,8 +470,8 @@ def _solve_s(dot11, dot12, cross12, Rv_sq, v0 = 1.) -> (float, float):
                 # copy of the 'elif' statement outside below
                 s -= ds
         elif (avoid_bad):
-            # unless the scan didn't found a bad disc. section near 0, \
-            # and it didn't found a root either
+            # unless the scan didn't find a bad disc. section near 0, \
+            # and it didn't find a root either
             s -= ds
 
     if (not isfinite(f)):
