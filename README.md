@@ -31,7 +31,7 @@ While the usage is written in the function comments, I'd still like to give two 
 
 2.
 
-    (v0_x, v0_y) = calc_start_v(x[:3], y[:3], 2., False) # Use the default algorithm 'parabola' to get a start velocity (this one is unnormalised) at max speed 2.0  
+    (v0_x, v0_y) = calc_start_v(x[:3], y[:3], 2., False) # Use the default algorithm 'parabola' to get a start velocity (unnormalised here) at max speed 2.0  
     N_array = 9. * ((x[1:] - x[:-1])**2. + (y[1:] - y[:-1])**2.)**.5 # To be passed as an array of the numbers of interpolated points within each (x, y) interval
     N_array[0] = 0 # 0 corresponds to no interpolated points
     V_array = 0. * x + 3. # To be passed as an array of max speed values within each (x, y) interval
